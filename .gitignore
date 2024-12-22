@@ -169,3 +169,11 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Ignored files and directories
+C:/IDE/Zaradye_bot/plant_images/
+C:/IDE/Zaradye_bot/plant_images.zip
+C:/IDE/Zaradye_bot/response.mp3
+C:/IDE/Zaradye_bot/flagged/
+Найти еще
+Important Note
