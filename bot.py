@@ -6,62 +6,49 @@ from gtts import gTTS
 import os
 import glob
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-from config import TOKEN  # Убедитесь, что у вас есть файл config.py с определенной переменной TOKEN
-
-
-from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext
-from telegram.ext import filters  # Updated import
+from telegram.ext import filters     # Импортируем фильтры для обработки сообщений
+from config import TOKEN             # Импортируем токен бота из файла config.py
 
-
-
-def main():
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))  # Updated usage
-    updater.start_polling()
-    updater.idle()
-
-# Загрузка данных
+# Загружаем данные о растениях из CSV-файла
 CSV_PATH = r"C:\Data_sets\data-60861-2024-08-06.csv"
 df_plants = pd.read_csv(CSV_PATH, sep=';', encoding='utf-8', on_bad_lines='skip')
+# Убираем строки, где ID равен 'Код'
 df_plants = df_plants[df_plants['ID'] != 'Код'].reset_index(drop=True)
 
-# Загрузка модели BERT
+# Загружаем модель BERT для обработки вопросов
 tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 model = AutoModelForQuestionAnswering.from_pretrained("bert-base-uncased")
 
-# Функция озвучивания текста
+# Функция для озвучивания текста
 def text_to_speech(text):
-    tts = gTTS(text=text, lang='ru')
-    audio_path = 'response.mp3'
-    tts.save(audio_path)
-    return audio_path
+    tts = gTTS(text=text, lang='ru')  # Создаем объект gTTS для преобразования текста в речь
+    audio_path = 'response.mp3'  # Путь для сохранения аудиофайла
+    tts.save(audio_path)  # Сохраняем аудиофайл
+    return audio_path  # Возвращаем путь к аудиофайлу
 
-# Функция получения изображений растений
+# Функция для получения изображений растений по латинскому названию
 def get_plant_images(latin_name):
-    image_dir = f'C:/Users/Mikl/zaryadye_bot/plant_images/{latin_name}'
-    if os.path.exists(image_dir):
-        return sorted(glob.glob(f'{image_dir}/Image_*.jpg'))
-    return []
+    image_dir = f'C:/Users/Mikl/zaryadye_bot/plant_images/{latin_name}'  # Путь к директории с изображениями
+    if os.path.exists(image_dir):  # Проверяем, существует ли директория
+        return sorted(glob.glob(f'{image_dir}/Image_*.jpg'))  # Возвращаем отсортированный список изображений
+    return []  # Если директория не найдена, возвращаем пустой список
 
-# Функция получения информации о растениях
+# Функция для получения информации о растениях на основе вопроса
 def get_plant_info(question):
-    # Обработка общих запросов о хвойных растениях
+    # Обработка запросов о хвойных растениях
     if 'хвойные' in question.lower():
         conifer_plants = df_plants[df_plants['LandscapingZone'].str.contains('Хвойный', na=False)]
         response = "Хвойные растения в парке:\n" + "\n".join(conifer_plants['Name'].tolist())
         return response, True
 
-    # Обработка запроса о смешанных лесах
+    # Обработка запросов о смешанных лесах
     if 'смешанный лес' in question.lower():
         mixed_forest = df_plants[df_plants['LandscapingZone'].str.contains('Смешанный', na=False)]
         response = "Растения смешанного леса:\n" + "\n".join(mixed_forest['Name'].tolist())
         return response, True
 
-    # Обработка запроса о всех растениях
+    # Обработка запросов о всех растениях
     if 'все растения' in question.lower() or 'список растений' in question.lower():
         response = "Растения в парке:\n" + "\n".join(df_plants['Name'].tolist())
         return response, True
@@ -70,17 +57,17 @@ def get_plant_info(question):
     max_ratio = 0
     matched_name = None
     for name in df_plants['Name'].unique():
-        ratio = fuzz.partial_ratio(name.lower(), question.lower())
-        if ratio > max_ratio and ratio > 70:
+        ratio = fuzz.partial_ratio(name.lower(), question.lower())  # Вычисляем степень совпадения
+        if ratio > max_ratio and ratio > 70:  # Если совпадение выше 70%
             max_ratio = ratio
-            matched_name = name
+            matched_name = name  # Сохраняем наиболее подходящее название растения
 
-    if matched_name:
-        plant = df_plants[df_plants['Name'] == matched_name].iloc[0]
-        latin_name = plant['LatinName']
-        images = get_plant_images(latin_name)
+    if matched_name:  # Если найдено совпадение
+        plant = df_plants[df_plants['Name'] == matched_name].iloc[0]  # Получаем данные о растении
+        latin_name = plant['LatinName']  # Получаем латинское название
+        images = get_plant_images(latin_name)  # Получаем изображения растения
 
-        # Определение ответа на основе вопроса
+        # Определяем ответ на основе вопроса
         if any(word in question.lower() for word in ['где', 'расположен', 'растет']):
             response = f"{matched_name} расположен в {plant['LocationPlace']}."
         elif any(word in question.lower() for word in ['когда', 'цветет', 'цветение']):
@@ -90,155 +77,41 @@ def get_plant_info(question):
         else:
             response = f"{matched_name} (латинское название: {latin_name})\n{plant['Description']}"
 
-        return response, images
+        return response, images  # Возвращаем ответ и изображения
 
-    return "Растение не найдено.", []
+    return "Растение не найдено.", []  # Если растение не найдено
 
-# Основные обработчики команд
+# Обработчик команды /start
 def start(update: Update, context: CallbackContext):
     update.message.reply_text("Привет! Я бот для консультации по растениям парка Зарядье. Задайте мне вопрос.")
 
+# Обработчик текстовых сообщений
 def handle_message(update: Update, context: CallbackContext):
-    question = update.message.text
-    response, images = get_plant_info(question)
+    question = update.message.text  # Получаем текст вопроса от пользователя
+    response, images = get_plant_info(question)  # Получаем ответ и изображения
 
-    if images:
-        update.message.reply_text(response)
-        for img in images:
+    if images:  # Если есть изображения
+        update.message.reply_text(response)  # Отправляем текст ответа
+        for img in images:  # Отправляем каждое изображение
             with open(img, 'rb') as image_file:
                 update.message.reply_photo(photo=image_file)
     else:
-        update.message.reply_text(response)
+        update.message.reply_text(response)  # Если изображений нет, отправляем только текст
 
-    # Озвучивание
-    audio_path = text_to_speech(response)
+    # Озвучивание ответа
+    audio_path = text_to_speech(response)  # Преобразуем текст в речь
     with open(audio_path, 'rb') as audio_file:
-        update.message.reply_audio(audio_file)
+        update.message.reply_audio(audio_file)  # Отправляем аудиофайл
 
+# Основная функция для запуска бота
 def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-    updater.start_polling()
-    updater.idle()
+    updater = Updater(TOKEN)  # Создаем объект Updater с токеном
+    dp = updater.dispatcher  # Получаем диспетчер для обработки сообщений
+    dp.add_handler(CommandHandler("start", start))  # Добавляем обработчик команды /start
+    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))  # Добавляем обработчик текстовых сообщений
+    updater.start_polling()  # Запускаем опрос обновлений
+    updater.idle()  # Ожидаем завершения работы
 
 if __name__ == '__main__':
-    main()
-    
-
-
-import pandas as pd
-import torch
-from transformers import AutoTokenizer, AutoModelForQuestionAnswering
-from fuzzywuzzy import fuzz
-from gtts import gTTS
-import os
-import glob
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext
-from telegram.ext import filters  # Use lowercase 'filters'
-from config import TOKEN
-
-# Load data
-CSV_PATH = r"C:\Data_sets\data-60861-2024-08-06.csv"
-df_plants = pd.read_csv(CSV_PATH, sep=';', encoding='utf-8', on_bad_lines='skip')
-df_plants = df_plants[df_plants['ID'] != 'Код'].reset_index(drop=True)
-
-# Load BERT model
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-model = AutoModelForQuestionAnswering.from_pretrained("bert-base-uncased")
-
-# Text-to-speech function
-def text_to_speech(text):
-    tts = gTTS(text=text, lang='ru')
-    audio_path = 'response.mp3'
-    tts.save(audio_path)
-    return audio_path
-
-# Function to get plant images
-def get_plant_images(latin_name):
-    image_dir = f'C:/Users/Mikl/zaryadye_bot/plant_images/{latin_name}'
-    if os.path.exists(image_dir):
-        return sorted(glob.glob(f'{image_dir}/Image_*.jpg'))
-    return []
-
-# Function to get plant information
-def get_plant_info(question):
-    # Handle queries about coniferous plants
-    if 'хвойные' in question.lower():
-        conifer_plants = df_plants[df_plants['LandscapingZone'].str.contains('Хвойный', na=False)]
-        response = "Хвойные растения в парке:\n" + "\n".join(conifer_plants['Name'].tolist())
-        return response, True
-
-    # Handle queries about mixed forests
-    if 'смешанный лес' in question.lower():
-        mixed_forest = df_plants[df_plants['LandscapingZone'].str.contains('Смешанный', na=False)]
-        response = "Растения смешанного леса:\n" + "\n".join(mixed_forest['Name'].tolist())
-        return response, True
-
-    # Handle queries for all plants
-    if 'все растения' in question.lower() or 'список растений' in question.lower():
-        response = "Растения в парке:\n" + "\n".join(df_plants['Name'].tolist())
-        return response, True
-
-    # Fuzzy matching for plant names
-    max_ratio = 0
-    matched_name = None
-    for name in df_plants['Name'].unique():
-        ratio = fuzz.partial_ratio(name.lower(), question.lower())
-        if ratio > max_ratio and ratio > 70:
-            max_ratio = ratio
-            matched_name = name
-
-    if matched_name:
-        plant = df_plants[df_plants['Name'] == matched_name].iloc[0]
-        latin_name = plant['LatinName']
-        images = get_plant_images(latin_name)
-
-        # Determine the response based on the question
-        if any(word in question.lower() for word in ['где', 'расположен', 'растет']):
-            response = f"{matched_name} расположен в {plant['LocationPlace']}."
-        elif any(word in question.lower() for word in ['когда', 'цветет', 'цветение']):
-            response = f"{matched_name} цветет в период: {plant['ProsperityPeriod']}."
-        elif 'латинск' in question.lower():
-            response = f"Латинское название {matched_name}: {plant['LatinName']}."
-        else:
-            response = f"{matched_name} (латинское название: {latin_name})\n{plant['Description']}"
-
-        return response, images
-
-    return "Растение не найдено.", []
-
-# Command handlers
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Привет! Я бот для консультации по растениям парка Зарядье. Задайте мне вопрос.")
-
-def handle_message(update: Update, context: CallbackContext):
-    question = update.message.text
-    response, images = get_plant_info(question)
-
-    if images:
-        update.message.reply_text(response)
-        for img in images:
-            with open(img, 'rb') as image_file:
-                update.message.reply_photo(photo=image_file)
-    else:
-        update.message.reply_text(response)
-
-    # Text-to-speech
-    audio_path = text_to_speech(response)
-    with open(audio_path, 'rb') as audio_file:
-        update.message.reply_audio(audio_file)
-
-def main():
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))  # Updated usage
-    updater.start_polling()
-    updater.idle()
-
-if __name__ == '__main__':
-    main()
+    main()  # Запускаем основную функцию
 
